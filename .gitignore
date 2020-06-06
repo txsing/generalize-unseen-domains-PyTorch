@@ -1,0 +1,5 @@
+*.pyc
+*.pkl
+*.DS_Store
+models/pretrained/*
+
