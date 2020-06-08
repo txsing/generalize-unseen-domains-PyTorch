@@ -64,3 +64,16 @@ class JigsawDataset(data.Dataset):
 
     def __len__(self):
         return len(self.names)
+
+class AdvDataset(data.Dataset):
+    # adv_data.shape = B X H X W X C
+    # Image tensor data get normailized already
+    def __init__(self, adv_data, labels):
+        self.data = adv_data
+        self.labels = labels
+
+    def __getitem__(self, index):
+        return self.data[index], int(self.labels[index])
+
+    def __len__(self):
+        return len(self.data)

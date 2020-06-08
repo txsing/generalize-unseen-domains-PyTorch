@@ -36,11 +36,16 @@ def get_args():
     parser.add_argument("--n_classes", "-c", type=int, default=7, help="Number of classes")
     parser.add_argument("--network", choices=model_factory.nets_map.keys(), help="Which network to use", default="caffenet")
     parser.add_argument("--val_size", type=float, default="0.1", help="Validation size (between 0 and 1)")
-    parser.add_argument("--gamma", type=float, default=1.0, help="Higher val means stricter distance constraint")
+
+    parser.add_argument("--K", type=int, default=6, help="Number of whole adversarial phases")
+    parser.add_argument("--T_min", type=int, default=10, help="Number of iterations in Min-phase")
+    parser.add_argument("--T_max", type=int, default=15, help="Number of iterations in Max-phase")
+    parser.add_argument("--gamma", type=float, default=1.0, help="Higher value leads to stricter distance constraint")
     parser.add_argument("--adv_learning_rate", type=float, default=1.0, help="Learning rate for adversarial training")
+
     # nesterov 是一种梯度下降的方法
     parser.add_argument("--nesterov", action='store_true', help="Use nesterov")
-    
+
     return parser.parse_args()
 
 class Trainer:
@@ -70,34 +75,13 @@ class Trainer:
         else:
             self.target_id = None
 
-    def _do_min_epoch(self):
-        criterion = nn.CrossEntropyLoss()
+    def _do_min_epoch(self, T_min=None):
         self.model.train() # 启用 BatchNormalization 和 Dropout
 
         for it, ((data, class_l), d_idx) in enumerate(self.source_loader):
-            data, class_l, d_idx = data.to(self.device), class_l.to(self.device), d_idx.to(self.device)
-
-            self.optimizer.zero_grad()
-
-            last_features, class_logit = self.model(data)
-            if self.target_id is not None: # target domain 的图片用于 predict，因此不贡献 loss
-                class_loss = criterion(class_logit[d_idx != self.target_id], class_l[d_idx != self.target_id])
-            else: # 对所有（包括打乱的）图片进行物种分类，target domain 只用于 predict
-                class_loss = criterion(class_logit, class_l)
-
-            _, cls_pred = class_logit.max(dim=1)
-            loss = class_loss
-            loss.backward()
-            self.optimizer.step()
-
-            self.current_iter +=1
-            self.log({"class": class_loss.item()},
-                            {"class": torch.sum(cls_pred == class_l.data).item()},
-                            data.shape[0] # Last batch size  <= self.batch_size
-                            )
-
-            # 解除变量引用与实际值的指向关系
-            del loss, class_loss, class_logit
+            self._do_min_iter(data, class_l, d_idx)
+            if self.current_iter == T_min:
+                break
 
         self.model.eval()
         with torch.no_grad():
@@ -109,7 +93,27 @@ class Trainer:
                 self.log_test(phase, {"class": class_acc})
                 self.results[phase][self.current_epoch] = class_acc
 
-    def _do_max_epoch(self, T_max, X_n, Y_n):
+    def _do_min_iter(self, data, class_l, d_idx):
+        criterion = nn.CrossEntropyLoss()
+        data, class_l, d_idx = data.to(self.device), class_l.to(self.device), d_idx.to(self.device)
+
+        self.optimizer.zero_grad()
+
+        last_features, class_logit = self.model(data)
+        _, cls_pred = class_logit.max(dim=1)
+
+        class_loss = criterion(class_logit, class_l)
+        class_loss.backward()
+        self.optimizer.step()
+
+        self.current_iter +=1
+        self.log(
+                {"Class Loss": class_loss.item()},
+                {"Class Acc": torch.sum(cls_pred == class_l.data).item()},
+                data.shape[0] # for case where last batch size  <= self.batch_size
+            )
+
+    def _do_max_phase(self, T_max, X_n, Y_n):
         # shape of X_n: B X H X W X C
         # from the Tensorflow implementation given by paper author, we can see N = BatchSize
         X_n, Y_n = X_n.to(self.device), Y_n.to(self.device)
@@ -128,6 +132,7 @@ class Trainer:
             if i == 0:
                 init_feature = last_features.clone().detach()
                 print(init_feature.shape)
+            _, cls_pred = class_logit.max(dim=1)
 
             class_loss = class_criterion(class_logit, Y_n)
             feature_loss = semantic_distance_criterion(last_features, init_feature)
@@ -138,9 +143,9 @@ class Trainer:
             max_optimizer.step()
 
             # 解除变量引用与实际值的指向关系
-            del adv_loss, class_loss, feature_loss, class_logit, last_features
+            del class_loss, feature_loss, class_logit, last_features
         X_n.data.clamp_(0,1)
-        return X_n
+        return X_n, cls_pred, adv_loss
 
     def do_training(self):
         self.results = {"val": torch.zeros(self.args.epochs), "test": torch.zeros(self.args.epochs)}
@@ -149,17 +154,25 @@ class Trainer:
         self.current_epoch = 0
         self.current_iter = 0
 
+        for k in range(self.args.K):
+            for it, ((data, class_l), d_idx) in enumerate(self.source_loader):
+                if (self.current_iter+1)%self.args.T_min != 0:
+                    self._do_min_iter(data, class_l, d_idx)
+                else:
+                    data_adv, labels_adv, loss_adv = self._do_max_phase(self.args.T_max, data, class_l)
+                    self.source_loader = data_helper.append_adversarial_samples(
+                        self.args, self.source_loader, data_adv, labels_adv
+                        )
+                    print("Added %d adversarial samples, adv loss: %g" % (len(data_adv), -1 * loss_adv))
+
+        print("Adeversarial phases ended! Start classifiction training!")
+        self.current_epoch = 0
+        self.current_iter = 0
         for self.current_epoch in range(self.args.epochs):
             self.scheduler.step()
             self._do_min_epoch()
-
             self.current_epoch+=1
             self.current_iter=0
-
-        for it, ((data, class_l), d_idx) in enumerate(self.source_loader):
-            data_adv = self._do_max_epoch(6, data, class_l)
-            print(torch.equal(data, data_adv.to('cpu')))
-            break
 
         val_res = self.results["val"]
         test_res = self.results["test"]

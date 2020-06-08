@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from data import StandardDataset
-from data.JigsawLoader import JigsawDataset, get_split_dataset_info, _dataset_info
+from data.JigsawLoader import JigsawDataset, AdvDataset, get_split_dataset_info, _dataset_info
 from data.concat_dataset import ConcatDataset
 
 mnist = 'mnist'
@@ -80,7 +80,7 @@ def get_train_dataloader(args):
     return loader, val_loader
 
 
-def get_target_dataloader(args, patches=False):
+def get_target_dataloader(args):
     names, labels = _dataset_info(join(dirname(__file__), 'txt_lists', '%s_test.txt' % args.target))
     img_tr = get_val_transformer(args)
     val_dataset = JigsawDataset(names, labels, img_transformer=img_tr)
@@ -91,6 +91,12 @@ def get_target_dataloader(args, patches=False):
     loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
     return loader
 
+def append_adversarial_samples(args, data_loader, adv_data, adv_labels):
+    dataset_ori = data_loader.dataset
+    dataset_adv = AdvDataset(adv_data, adv_labels)
+    dataset = ConcatDataset([dataset_ori, dataset_ori])
+    loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+    return loader
 
 # image_size
 # min_scale, max_scale
