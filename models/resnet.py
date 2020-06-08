@@ -64,8 +64,8 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x)
-        last_hidden_features = x
         x = x.view(x.size(0), -1)
+        last_hidden_features = x
         return last_hidden_features, self.class_classifier(x)
 
 

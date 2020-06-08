@@ -4,6 +4,7 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES']='2, 3'
 
 import torch
+from torch import optim
 #from IPython.core.debugger import set_trace
 from torch import nn
 from torch.nn import functional as F
@@ -30,11 +31,13 @@ def get_args():
     parser.add_argument("--limit_source", default=None, type=int, help="If set, it will limit the number of training samples")
     parser.add_argument("--limit_target", default=None, type=int, help="If set, it will limit the number of testing samples")
 
-    parser.add_argument("--learning_rate", "-l", type=float, default=.01, help="Learning rate")
+    parser.add_argument("--learning_rate", "-l", type=float, default=.01, help="Learning rate for classifiction training")
     parser.add_argument("--epochs", "-e", type=int, default=30, help="Number of epochs")
     parser.add_argument("--n_classes", "-c", type=int, default=7, help="Number of classes")
     parser.add_argument("--network", choices=model_factory.nets_map.keys(), help="Which network to use", default="caffenet")
     parser.add_argument("--val_size", type=float, default="0.1", help="Validation size (between 0 and 1)")
+    parser.add_argument("--gamma", type=float, default=1.0, help="Higher val means stricter distance constraint")
+    parser.add_argument("--adv_learning_rate", type=float, default=1.0, help="Learning rate for adversarial training")
     # nesterov 是一种梯度下降的方法
     parser.add_argument("--nesterov", action='store_true', help="Use nesterov")
     
@@ -106,6 +109,39 @@ class Trainer:
                 self.log_test(phase, {"class": class_acc})
                 self.results[phase][self.current_epoch] = class_acc
 
+    def _do_max_epoch(self, T_max, X_n, Y_n):
+        # shape of X_n: B X H X W X C
+        # from the Tensorflow implementation given by paper author, we can see N = BatchSize
+        X_n, Y_n = X_n.to(self.device), Y_n.to(self.device)
+        class_criterion = nn.CrossEntropyLoss()
+        semantic_distance_criterion = nn.MSELoss()
+        max_optimizer = optim.SGD([X_n.requires_grad_()], lr=self.args.adv_learning_rate)
+
+        self.model.eval()
+
+        init_feature = None
+        for i in range(T_max):
+            X_n.data.clamp_(0,1)
+            max_optimizer.zero_grad()
+
+            last_features, class_logit = self.model(X_n)
+            if i == 0:
+                init_feature = last_features.clone().detach()
+                print(init_feature.shape)
+
+            class_loss = class_criterion(class_logit, Y_n)
+            feature_loss = semantic_distance_criterion(last_features, init_feature)
+            adv_loss = self.args.gamma * feature_loss - class_loss
+
+            print(adv_loss)
+            adv_loss.backward()
+            max_optimizer.step()
+
+            # 解除变量引用与实际值的指向关系
+            del adv_loss, class_loss, feature_loss, class_logit, last_features
+        X_n.data.clamp_(0,1)
+        return X_n
+
     def do_training(self):
         self.results = {"val": torch.zeros(self.args.epochs), "test": torch.zeros(self.args.epochs)}
 
@@ -119,6 +155,11 @@ class Trainer:
 
             self.current_epoch+=1
             self.current_iter=0
+
+        for it, ((data, class_l), d_idx) in enumerate(self.source_loader):
+            data_adv = self._do_max_epoch(6, data, class_l)
+            print(torch.equal(data, data_adv.to('cpu')))
+            break
 
         val_res = self.results["val"]
         test_res = self.results["test"]
