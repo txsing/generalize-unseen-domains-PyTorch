@@ -1,7 +1,7 @@
 import argparse
 
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='2, 3'
+os.environ['CUDA_VISIBLE_DEVICES']='3'
 
 import torch
 from torch import optim
@@ -63,6 +63,7 @@ class Trainer:
         self.source_loader, self.val_loader = data_helper.get_train_dataloader(args)
         self.target_loader = data_helper.get_target_dataloader(args)
         self.test_loaders = {"val": self.val_loader, "test": self.target_loader}
+        self.init_train_dataset_size = len(self.source_loader.dataset)
         print("Dataset size: train %d, val %d, test %d" % (len(self.source_loader.dataset), len(self.val_loader.dataset), len(self.target_loader.dataset)))
 
         self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov)
@@ -169,6 +170,9 @@ class Trainer:
         print("%d rounds of adeversarial procedure ended! Start classifiction training!" % self.args.K)
         
         self.current_iter = 0
+        cur_train_dataset_size = len(self.source_loader.dataset)
+        print("New Training Dataset Size %d after Adv Procedure! %d adversarial images added" 
+              % (cur_train_dataset_size, cur_train_dataset_size - self.init_train_dataset_size))
         for self.current_epoch in range(self.args.epochs):
             self.scheduler.step()
             self._do_min_epoch()
