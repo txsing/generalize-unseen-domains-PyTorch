@@ -92,9 +92,12 @@ def get_target_dataloader(args):
     return loader
 
 def append_adversarial_samples(args, data_loader, adv_data, adv_labels):
-    dataset_ori = data_loader.dataset
+    datasets = data_loader.dataset.datasets
+
     dataset_adv = AdvDataset(adv_data, adv_labels)
-    dataset = ConcatDataset([dataset_ori, dataset_ori])
+    datasets.append(dataset_adv)
+
+    dataset = ConcatDataset(datasets)
     loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
     return loader
 

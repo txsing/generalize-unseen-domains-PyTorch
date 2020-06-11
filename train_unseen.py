@@ -75,13 +75,16 @@ class Trainer:
         else:
             self.target_id = None
 
-    def _do_min_epoch(self, T_min=None):
+    def _do_min_epoch(self):
         self.model.train() # 启用 BatchNormalization 和 Dropout
 
         for it, ((data, class_l), d_idx) in enumerate(self.source_loader):
-            self._do_min_iter(data, class_l, d_idx)
-            if self.current_iter == T_min:
-                break
+            class_loss_val, class_acc = self._do_min_iter(data, class_l, d_idx)
+            self.log(
+                {"Class Loss": class_loss_val},
+                {"Class Acc": class_acc},
+                data.shape[0] # for case where last batch size  <= self.batch_size
+            )
 
         self.model.eval()
         with torch.no_grad():
@@ -106,12 +109,11 @@ class Trainer:
         class_loss.backward()
         self.optimizer.step()
 
+        class_loss_val = class_loss.item()
+        class_acc = torch.sum(cls_pred == class_l.data).item()
+
         self.current_iter +=1
-        self.log(
-                {"Class Loss": class_loss.item()},
-                {"Class Acc": torch.sum(cls_pred == class_l.data).item()},
-                data.shape[0] # for case where last batch size  <= self.batch_size
-            )
+        return class_loss_val, class_acc
 
     def _do_max_phase(self, T_max, X_n, Y_n):
         # shape of X_n: B X H X W X C
@@ -131,42 +133,41 @@ class Trainer:
             last_features, class_logit = self.model(X_n)
             if i == 0:
                 init_feature = last_features.clone().detach()
-                print(init_feature.shape)
             _, cls_pred = class_logit.max(dim=1)
 
             class_loss = class_criterion(class_logit, Y_n)
             feature_loss = semantic_distance_criterion(last_features, init_feature)
             adv_loss = self.args.gamma * feature_loss - class_loss
 
-            print(adv_loss)
             adv_loss.backward()
             max_optimizer.step()
 
             # 解除变量引用与实际值的指向关系
             del class_loss, feature_loss, class_logit, last_features
         X_n.data.clamp_(0,1)
-        return X_n, cls_pred, adv_loss
+        return X_n.to('cpu').detach(), cls_pred.to('cpu').detach().flatten().tolist(), adv_loss
 
     def do_training(self):
-        self.results = {"val": torch.zeros(self.args.epochs), "test": torch.zeros(self.args.epochs)}
-
-        self.total_iters_cur_epoch = len(self.source_loader)
         self.current_epoch = 0
-        self.current_iter = 0
+        self.results = {"val": torch.zeros(self.args.epochs), "test": torch.zeros(self.args.epochs)}
+        self.total_iters_cur_epoch = len(self.source_loader)
 
         for k in range(self.args.K):
+            self.current_iter = 0
+            class_loss, class_acc = 0.0, 0.0
             for it, ((data, class_l), d_idx) in enumerate(self.source_loader):
-                if (self.current_iter+1)%self.args.T_min != 0:
-                    self._do_min_iter(data, class_l, d_idx)
-                else:
+                if self.current_iter == self.args.T_min:
+                    print("Min-phase ended, class loss: %g, class acc: %g. %d-th Max-phase started!"
+                          % (class_loss, class_acc, k))
                     data_adv, labels_adv, loss_adv = self._do_max_phase(self.args.T_max, data, class_l)
                     self.source_loader = data_helper.append_adversarial_samples(
-                        self.args, self.source_loader, data_adv, labels_adv
-                        )
-                    print("Added %d adversarial samples, adv loss: %g" % (len(data_adv), -1 * loss_adv))
+                        self.args, self.source_loader, data_adv, labels_adv)
+                    print("%d-th Max-phase ended, Adv loss: %g" % (k, -1 * loss_adv))
+                    break
+                class_loss, class_acc = self._do_min_iter(data, class_l, d_idx)
 
-        print("Adeversarial phases ended! Start classifiction training!")
-        self.current_epoch = 0
+        print("%d rounds of adeversarial procedure ended! Start classifiction training!" % self.args.K)
+        
         self.current_iter = 0
         for self.current_epoch in range(self.args.epochs):
             self.scheduler.step()
@@ -193,11 +194,20 @@ class Trainer:
         losses_string = ", ".join(["%s : %.3f" % (k, v) for k, v in losses_dic.items()])
         acc_string = ", ".join(["%s : %.2f" % (k, 100 * (v / total_samples_cur_batch)) for k, v in correct_samples_dic.items()])
         if self.current_iter % self.log_frequency == 0:
-            print("%d/%d of epoch %d/%d %s - acc %s [bs:%d]" % (self.current_iter, self.total_iters_cur_epoch, self.current_epoch, self.args.epochs, losses_string,
-                                                                acc_string, total_samples_cur_batch))
+            print("%d/%d of epoch %d/%d %s - %s [bs:%d]" % (self.current_iter, self.total_iters_cur_epoch,
+                                                            self.current_epoch,self.args.epochs, losses_string,
+                                                            acc_string, total_samples_cur_batch
+                                                           )
+                 )
 
     def log_test(self, phase, accuracies):
         print("Accuracies on %s: " % phase + ", ".join(["%s : %.2f" % (k, v * 100) for k, v in accuracies.items()]))
+    def test_func(self):
+        fake_data = torch.ones(128,3,222,222)
+        fake_labels = torch.ones(128,1)
+        loader = data_helper.append_adversarial_samples(self.args, self.source_loader, fake_data, fake_labels)
+        for it, ((data, class_l), _) in enumerate(loader):
+            print(data.shape)
 
 
 def main():
@@ -205,7 +215,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     trainer = Trainer(args, device)
     trainer.do_training()
-
+    #trainer.test_func()
 
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = True # 设为 True 将会让程序在开始时花费一点额外时间，为整个网络的每个卷积层搜索最适合它的卷积实现算法，进而实现网络的加速。

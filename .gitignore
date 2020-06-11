@@ -2,4 +2,5 @@
 *.pkl
 *.DS_Store
 models/pretrained/*
+*/.ipynb_checkpoints/*
 
