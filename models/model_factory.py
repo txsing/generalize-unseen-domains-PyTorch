@@ -1,6 +1,5 @@
 from models import caffenet
 from models import mnist
-from models import patch_based
 from models import alexnet
 from models import resnet
 

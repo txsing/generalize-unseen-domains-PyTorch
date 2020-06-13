@@ -45,6 +45,7 @@ def get_args():
 
     # nesterov 是一种梯度下降的方法
     parser.add_argument("--nesterov", action='store_true', help="Use nesterov")
+    parser.add_argument("--adam", action='store_true', help="Use adam for classification training")
 
     return parser.parse_args()
 
@@ -66,7 +67,7 @@ class Trainer:
         self.init_train_dataset_size = len(self.source_loader.dataset)
         print("Dataset size: train %d, val %d, test %d" % (len(self.source_loader.dataset), len(self.val_loader.dataset), len(self.target_loader.dataset)))
 
-        self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov)
+        self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov, adam = args.adam)
         self.n_classes = args.n_classes
 
         if args.target in args.source:

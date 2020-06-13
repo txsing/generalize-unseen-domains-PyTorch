@@ -16,7 +16,7 @@ class MnistModel(nn.Module):
             nn.MaxPool2d(2, 2)
         )
         self.classifier = nn.Sequential(
-            nn.Linear(128 * 4 * 4, 1024),
+            nn.Linear(128 * 5 * 5, 1024),
             nn.ReLU(True),
             nn.Linear(1024, 1024),
             nn.ReLU(True),
