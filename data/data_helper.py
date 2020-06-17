@@ -1,6 +1,8 @@
 from os.path import join, dirname
 
 import numpy as np
+from torchvision import datasets
+import PIL.Image as Image
 import pickle
 import scipy.io
 import torch
@@ -143,32 +145,60 @@ def get_digital_target_dataloader(args, dname):
 # ref: https://github.com/ricvolpi/generalize-unseen-domains/blob/master/trainOps.py#load_mnist
 def load_mnist_dataset(split='train'):
     print ('Loading MNIST dataset.')
-    image_file = 'train.pkl' if split=='train' else 'test.pkl'
-    image_dir = join('./data/datasets/', 'mnist', image_file)
-    with open(image_dir, 'rb') as f:
-        mnist = pickle.load(f, encoding='latin1')
-    images = mnist['X'] 
-    labels = mnist['y'].tolist()
+    mnist = datasets.MNIST('./data/datasets/mnist', train=True, transform=None, 
+                               target_transform=None, download=True)
 
-    images = images / 255.
-    images = np.stack((images,images,images), axis=1)  # grayscale to rgb
-    images = images.astype(np.float32)
+    MNIST_sample = torch.zeros(mnist.train_data.size(0), 3, 32, 32)
+    for i in range(MNIST_sample.size(0)):
+        img = Image.fromarray(mnist.train_data[i].numpy())
+        img = img.resize([32,32])
+        img = img.convert('RGB')
+        img = np.asarray(img, np.float32)
+        img = img.transpose((2,0,1))
+        MNIST_sample[i] = torch.Tensor(img).unsqueeze(0)
 
-    return torch.from_numpy(np.squeeze(images)), labels
+# somehow [0,1] normalization will lead to slow training compared with [-1, 1]
+#     MNIST_sample = MNIST_sample / 255
+    MNIST_sample = (MNIST_sample - 128) / 128
+    return MNIST_sample, mnist.train_labels.int().tolist()
+
+#     image_file = 'train.pkl' if split=='train' else 'test.pkl'
+#     image_dir = join('./data/datasets/', 'mnist', image_file)
+#     with open(image_dir, 'rb') as f:
+#         mnist = pickle.load(f, encoding='latin1')
+#     images = mnist['X']
+#     labels = mnist['y'].tolist()
+
+#     images = images / 255.
+#     images = np.stack((images,images,images), axis=1)  # grayscale to rgb
+#     images = images.astype(np.float32)
+
+#     return torch.from_numpy(np.squeeze(images)), labels
 
 # ref: https://github.com/ricvolpi/generalize-unseen-domains/blob/master/trainOps.py#load_svhn
 def load_svhn_dataset(split='train'):
     print ('Loading SVHN dataset.')
-    image_file = 'train_32x32.mat' if split=='train' else 'test_32x32.mat'
+    svhn = datasets.SVHN('./data/datasets/svhn', split='train', transform=None, 
+                             target_transform=None, download=True)
+    
+    svhn_sample = torch.Tensor(svhn.data).float()
+    svhn_label = torch.Tensor(svhn.labels).int()
+    
+    
+    # somehow [0,1] normalization will lead to slow training compared with [-1, 1]
+#     svhn_sample = svhn_sample / 255
+    svhn_sample = (svhn_sample - 128) / 128
+    return svhn_sample, svhn_label.tolist()
+#     image_file = 'train_32x32.mat' if split=='train' else 'test_32x32.mat'
 
-    image_dir = join('./data/datasets/', 'svhn', image_file)
-    svhn = scipy.io.loadmat(image_dir)
-    images = np.transpose(svhn['X'], [3, 2, 0, 1]) / 255.
-    images = images.astype(np.float32)
+#     image_dir = join('./data/datasets/', 'svhn', image_file)
+#     svhn = scipy.io.loadmat(image_dir)
+#     images = np.transpose(svhn['X'], [3, 2, 0, 1]) / 255.
+#     images = images.astype(np.float32)
 
-    labels = svhn['y'].reshape(-1)
-    labels[np.where(labels==10)] = 0
-    return torch.from_numpy(images), labels.tolist()
+#     labels = svhn['y'].reshape(-1)
+#     labels[np.where(labels==10)] = 0
+#     return torch.from_numpy(images), labels.tolist()
 
 # adv_data => torch.Size([BatchSize, Channels, H, W])
 # adv_labels => numpy 1-d int list  [1,2,3,4]

@@ -1,7 +1,6 @@
 import argparse
 
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='3'
 
 import torch
 from torch import optim
@@ -21,6 +20,7 @@ def get_args():
     parser.add_argument("--source", choices=available_datasets, help="Source", nargs='+')
     parser.add_argument("--target", choices=available_datasets, help="Target")
     parser.add_argument("--batch_size", "-b", type=int, default=64, help="Batch size")
+    parser.add_argument("--gpu", "-g", type=int, default=0, help="GPU index")
     parser.add_argument("--image_size", type=int, default=225, help="Image size")
     # data a stuff
     parser.add_argument("--min_scale", default=0.8, type=float, help="Minimum scale percent")
@@ -51,6 +51,7 @@ def get_args():
 
 class Trainer:
     def __init__(self, args, device):
+        os.environ['CUDA_VISIBLE_DEVICES']=str(args.gpu)
         self.args = args
         self.device = device
 

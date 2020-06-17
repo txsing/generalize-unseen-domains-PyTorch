@@ -8,7 +8,7 @@ def get_optim_and_scheduler(network, epochs, lr, train_all=True, nesterov=False,
         params = network.get_params(lr)
  
     if adam: # refer to https://github.com/ricvolpi/generalize-unseen-domains
-        optimizer = optim.Adam(params, lr=lr)
+        optimizer = optim.Adam(params, lr=lr, betas=(0.9, 0.999), weight_decay = 0.0005)
     else:
         optimizer = optim.SGD(params, weight_decay=.0005, momentum=.9, nesterov=nesterov, lr=lr)
     step_size = math.ceil(epochs * .8)

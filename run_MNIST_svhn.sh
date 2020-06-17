@@ -1,14 +1,15 @@
 python train_unseen.py \
- --K=6 --T_min=100 --T_max=15 \
+ --K=0 --T_min=100 --T_max=15 \
  --limit_source=10000 \
  --limit_target=10000 \
  --gamma 1.0 --adv_learning_rate 1.0 \
  --batch_size 32 \
- --epochs 1 \
+ --epochs 10 \
  --network lenet \
- --n_classes 10 --learning_rate 0.0001 --val_size 0.1 \
+ --n_classes 10 --learning_rate 1e-4 --val_size 0.1 \
  --min_scale 0.8 --max_scale 1.0 --random_horiz_flip 0.5 --jitter 0.4 \
  --source mnist \
  --target svhn \
  --image_size 32 \
- --adam
+ --adam \
+ --gpu $1
