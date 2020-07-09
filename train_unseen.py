@@ -42,6 +42,7 @@ def get_args():
     parser.add_argument("--T_max", type=int, default=15, help="Number of iterations in Max-phase")
     parser.add_argument("--gamma", type=float, default=1.0, help="Higher value leads to stricter distance constraint")
     parser.add_argument("--adv_learning_rate", type=float, default=1.0, help="Learning rate for adversarial training")
+    parser.add_argument("--flip_p", type=float, default=0.5, help="flip probability")
 
     # nesterov 是一种梯度下降的方法
     parser.add_argument("--nesterov", action='store_true', help="Use nesterov")
@@ -51,22 +52,22 @@ def get_args():
 
 class Trainer:
     def __init__(self, args, device):
-        os.environ['CUDA_VISIBLE_DEVICES']=str(args.gpu)
         self.args = args
+        print('config: mnist %g flip to %s!' % (args.flip_p, args.target) )
         self.device = device
 
         # Logger
-        self.log_frequency = 10
+        self.log_frequency = 100
 
         model = model_factory.get_network(args.network)(classes=args.n_classes)
         self.model = model.to(device)
 
         # The training dataset get divided into two parts (Train & Validation)
         self.source_loader, self.val_loader = data_helper.get_train_dataloader(args)
-        self.target_loader = data_helper.get_target_dataloader(args)
-        self.test_loaders = {"val": self.val_loader, "test": self.target_loader}
+        self.target_loaders = data_helper.get_target_dataloaders(args)
+        self.test_loaders = {"val": self.val_loader, "test": self.target_loaders}
         self.init_train_dataset_size = len(self.source_loader.dataset)
-        print("Dataset size: train %d, val %d, test %d" % (len(self.source_loader.dataset), len(self.val_loader.dataset), len(self.target_loader.dataset)))
+        print("Dataset size: train %d, val %d" % (len(self.source_loader.dataset), len(self.val_loader.dataset)))
 
         self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov, adam = args.adam)
         self.n_classes = args.n_classes
@@ -92,12 +93,31 @@ class Trainer:
         self.model.eval()
         with torch.no_grad():
             for phase, loader in self.test_loaders.items():
-                total = len(loader.dataset)
-                class_correct = self.do_test(loader)
-                class_acc = float(class_correct) / total
+                if phase == 'test':
+                    domains = ['svhn', 'mnist_m', 'syn', 'usps']
+                    acc_sum = 0.0
+                    for didx in range(len(loader)):
+                        dkey = phase + '-' + domains[didx]
 
-                self.log_test(phase, {"class": class_acc})
-                self.results[phase][self.current_epoch] = class_acc
+                        test_loader = loader[didx]
+                        test_total = len(test_loader.dataset)
+                        class_correct = self.do_test(test_loader)
+                        class_acc = float(class_correct) / test_total
+
+                        self.log_test(dkey, {"class": class_acc})
+                        if dkey not in self.results.keys():
+                            self.results[dkey] = torch.zeros(self.args.epochs)
+                        self.results[dkey][self.current_epoch] = class_acc
+                        acc_sum += class_acc
+                    self.log_test(phase, {"class": acc_sum / len(loader)})
+                    self.results[phase][self.current_epoch] = acc_sum / len(loader)
+                else:
+                    total = len(loader.dataset)
+                    class_correct = self.do_test(loader)
+                    class_acc = float(class_correct) / total
+
+                    self.log_test(phase, {"class": class_acc})
+                    self.results[phase][self.current_epoch] = class_acc
 
     def _do_min_iter(self, data, class_l, d_idx):
         criterion = nn.CrossEntropyLoss()
@@ -183,8 +203,10 @@ class Trainer:
 
         val_res = self.results["val"]
         test_res = self.results["test"]
-        idx_best = val_res.argmax()
-        print("Best val %g, corresponding test %g - best test: %g" % (val_res.max(), test_res[idx_best], test_res.max()))
+        idx__val_best = val_res.argmax()
+        idx_test_best = test_res.argmax()
+
+        print("Best test acc: %g in epoch: %d" % (test_res.max(), idx_test_best+1))
         return self.model
 
     def do_test(self, loader):
@@ -217,7 +239,14 @@ class Trainer:
 
 
 def main():
+    torch.manual_seed(9963)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(9963)
+
     args = get_args()
+    torch.cuda.set_device(args.gpu)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     trainer = Trainer(args, device)
     trainer.do_training()
