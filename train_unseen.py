@@ -9,10 +9,11 @@ from torch import nn
 from torch.nn import functional as F
 from data import data_helper
 # from IPython.core.debugger import set_trace
-from data.data_helper import available_datasets
+from data.data_helper import available_datasets, pacs_datasets, digits_datasets
 from models import model_factory
 from optimizer.optimizer_helper import get_optim_and_scheduler
 import numpy as np
+import random
 
 
 def get_args():
@@ -42,7 +43,7 @@ def get_args():
     parser.add_argument("--T_max", type=int, default=15, help="Number of iterations in Max-phase")
     parser.add_argument("--gamma", type=float, default=1.0, help="Higher value leads to stricter distance constraint")
     parser.add_argument("--adv_learning_rate", type=float, default=1.0, help="Learning rate for adversarial training")
-    parser.add_argument("--flip_p", type=float, default=0.5, help="flip probability")
+    parser.add_argument("--flip_p", type=float, default=0.1, help="flip probability")
 
     # nesterov 是一种梯度下降的方法
     parser.add_argument("--nesterov", action='store_true', help="Use nesterov")
@@ -56,9 +57,6 @@ class Trainer:
         print('config: mnist %g flip to %s!' % (args.flip_p, args.target) )
         self.device = device
 
-        # Logger
-        self.log_frequency = 100
-
         model = model_factory.get_network(args.network)(classes=args.n_classes)
         self.model = model.to(device)
 
@@ -69,6 +67,8 @@ class Trainer:
         self.init_train_dataset_size = len(self.source_loader.dataset)
         print("Dataset size: train %d, val %d" % (len(self.source_loader.dataset), len(self.val_loader.dataset)))
 
+        # Logger
+        self.log_frequency = (int)(len(self.source_loader) / 3)
         self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov, adam = args.adam)
         self.n_classes = args.n_classes
 
@@ -94,10 +94,14 @@ class Trainer:
         with torch.no_grad():
             for phase, loader in self.test_loaders.items():
                 if phase == 'test':
-                    domains = ['svhn', 'mnist_m', 'syn', 'usps']
+                    if self.args.source[0] in digits_datasets:
+                        target_domains = ['svhn', 'mnist_m', 'syn', 'usps']
+                    elif self.args.source[0] in pacs_datasets:
+                        target_domains = [item for item in pacs_datasets if item != self.args.source[0]]
+
                     acc_sum = 0.0
                     for didx in range(len(loader)):
-                        dkey = phase + '-' + domains[didx]
+                        dkey = phase + '-' + target_domains[didx]
 
                         test_loader = loader[didx]
                         test_total = len(test_loader.dataset)
@@ -243,6 +247,7 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     np.random.seed(9963)
+    random.seed(9963)
 
     args = get_args()
     torch.cuda.set_device(args.gpu)

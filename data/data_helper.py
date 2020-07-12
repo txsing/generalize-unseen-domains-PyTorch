@@ -14,33 +14,12 @@ from data import StandardDataset
 from data.JigsawLoader import JigsawDataset, AdvDataset, get_split_dataset_info, _dataset_info
 from data.concat_dataset import ConcatDataset
 
-mnist = 'mnist'
-mnist_m = 'mnist_m'
-svhn = 'svhn'
-synth = 'synth'
-usps = 'usps'
-syn = 'syn'
-ALL = 'ALL'
 
 vlcs_datasets = ["CALTECH", "LABELME", "PASCAL", "SUN"]
 pacs_datasets = ["art_painting", "cartoon", "photo", "sketch"]
 office_datasets = ["amazon", "dslr", "webcam"]
-digits_datasets = [mnist, mnist_m, svhn, usps, syn, ALL]
-available_datasets = office_datasets + pacs_datasets + vlcs_datasets + digits_datasets
-
-dataset_std = {mnist: (0.30280363, 0.30280363, 0.30280363),
-               mnist_m: (0.2384788, 0.22375608, 0.24496263),
-               svhn: (0.1951134, 0.19804622, 0.19481073),
-               synth: (0.29410212, 0.2939651, 0.29404707),
-               usps: (0.25887518, 0.25887518, 0.25887518),
-               }
-
-dataset_mean = {mnist: (0.13909429, 0.13909429, 0.13909429),
-                mnist_m: (0.45920207, 0.46326601, 0.41085603),
-                svhn: (0.43744073, 0.4437959, 0.4733686),
-                synth: (0.46332872, 0.46316052, 0.46327512),
-                usps: (0.17025368, 0.17025368, 0.17025368),
-                }
+digits_datasets = ["mnist", "mnist_m", "svhn", "usps", "syn"]
+available_datasets = office_datasets + pacs_datasets + vlcs_datasets + digits_datasets + ["ALL"]
 
 
 class Subset(torch.utils.data.Dataset):
@@ -90,21 +69,30 @@ def get_train_dataloader(args):
     return loader, val_loader
 
 def get_target_dataloaders(args):
-    if args.source[0] in digits_datasets:
-        if args.target == 'ALL':
-            loaders = []
-            for dname in ['svhn', 'mnist_m', 'syn', 'usps']:
+    if args.target == 'ALL':
+        loaders = []
+        if args.source[0] in digits_datasets:
+            target_domains = [item for item in digits_datasets if item != args.source[0] ]
+            for dname in target_domains:
                 loaders.append(get_digital_target_dataloader(args, dname))
             return loaders
-        return [get_digital_target_dataloader(args, dname)]
+        elif args.source[0] in pacs_datasets:
+            target_domains = [item for item in pacs_datasets if item != args.source[0] ]
+            for dname in target_domains:
+                loaders.append(get_target_dataloader(args, dname))
+            return loaders
+    else:
+        return [get_target_dataloader(args, args.target)]
 
-    names, labels = _dataset_info(join(dirname(__file__), 'txt_lists', '%s_test.txt' % args.target))
+def get_target_dataloader(args, dname):
+    names, labels = _dataset_info(join(dirname(__file__), 'txt_lists', '%s_test.txt' % dname))
     img_tr = get_val_transformer(args)
     val_dataset = JigsawDataset(names, labels, img_transformer=img_tr)
     if args.limit_target and len(val_dataset) > args.limit_target:
         val_dataset = Subset(val_dataset, args.limit_target)
         print("Using %d subset of val dataset" % args.limit_target)
     dataset = ConcatDataset([val_dataset])
+    print("Load %s, size: %d" % (dname, len(dataset)))
     loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
     return loader
 
@@ -156,7 +144,7 @@ def get_digital_target_dataloader(args, dname):
 
 
 # ref: https://github.com/ricvolpi/generalize-unseen-domains/blob/master/trainOps.py#load_mnist
-def load_mnist_dataset(split='train', flip_p=0.5):
+def load_mnist_dataset(split='train', flip_p=0.1):
     print ('Loading MNIST dataset.')
     mnist = datasets.MNIST('~/Datasets/mnist', train=True, transform=None, 
                                target_transform=None, download=True)

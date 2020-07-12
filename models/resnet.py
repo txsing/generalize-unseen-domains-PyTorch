@@ -1,6 +1,7 @@
 from torch import nn
 from torch.utils import model_zoo
 from torchvision.models.resnet import BasicBlock, model_urls, Bottleneck
+from collections import OrderedDict
 
 
 class ResNet(nn.Module):
@@ -53,20 +54,26 @@ class ResNet(nn.Module):
         return False
 
     def forward(self, x, **kwargs):
+        layers_output_dict = OrderedDict()
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
+        layers_output_dict['layer0']=x
         x = self.maxpool(x)
-
+        layers_output_dict['max_pool']=x
         x = self.layer1(x)
+        layers_output_dict['layer1']=x
         x = self.layer2(x)
+        layers_output_dict['layer2']=x
         x = self.layer3(x)
+        layers_output_dict['layer3']=x
         x = self.layer4(x)
+        layers_output_dict['layer4']=x
 
         x = self.avgpool(x)
+        layers_output_dict['avg_pool']=x
         x = x.view(x.size(0), -1)
-        last_hidden_features = x
-        return last_hidden_features, self.class_classifier(x)
+        return layers_output_dict, self.class_classifier(x)
 
 
 def resnet18(pretrained=True, **kwargs):
