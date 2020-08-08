@@ -206,10 +206,12 @@ class Trainer:
 
         val_res = self.results["val"]
         test_res = self.results["test"]
-        idx__val_best = val_res.argmax()
+        idx_val_best = val_res.argmax()
         idx_test_best = test_res.argmax()
 
-        print("Best test acc: %g in epoch: %d" % (test_res.max(), idx_test_best+1))
+        print("BestTestAcc: %g @epoch %d; BestValAcc: %g @epoch %d with TestAcc: %g" 
+              % (test_res.max(), idx_test_best+1, val_res.max(), idx_val_best+1, test_res[idx_val_best])
+             )
         return self.model
 
     def do_test(self, loader):
