@@ -48,6 +48,7 @@ def get_args():
     # nesterov 是一种梯度下降的方法
     parser.add_argument("--nesterov", action='store_true', help="Use nesterov")
     parser.add_argument("--adam", action='store_true', help="Use adam for classification training")
+    parser.add_argument("--decay", type=float, default=1.0, help="learning rate decay for min-phase")
 
     return parser.parse_args()
 
@@ -69,7 +70,7 @@ class Trainer:
 
         # Logger
         self.log_frequency = (int)(len(self.source_loader) / 3)
-        self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov, adam = args.adam)
+        self.optimizer, self.scheduler = get_optim_and_scheduler(model, args.epochs, args.learning_rate, train_all=True, nesterov=args.nesterov, adam = args.adam, decay_ratio = args.decay)
         self.n_classes = args.n_classes
 
         if args.target in args.source:
@@ -154,7 +155,6 @@ class Trainer:
 
         init_feature = None
         for i in range(T_max):
-            X_n.data.clamp_(0,1)
             max_optimizer.zero_grad()
 
             last_features, class_logit = self.model(X_n)
@@ -171,7 +171,6 @@ class Trainer:
 
             # 解除变量引用与实际值的指向关系
             del class_loss, feature_loss, class_logit, last_features
-        X_n.data.clamp_(0,1)
         return X_n.to('cpu').detach(), cls_pred.to('cpu').detach().flatten().tolist(), adv_loss
 
     def do_training(self):
@@ -227,7 +226,7 @@ class Trainer:
         acc_string = ", ".join(["%s : %.2f" % (k, 100 * (v / total_samples_cur_batch)) for k, v in correct_samples_dic.items()])
         if self.current_iter % self.log_frequency == 0:
             print("%d/%d of epoch %d/%d %s - %s [bs:%d]" % (self.current_iter, self.total_iters_cur_epoch,
-                                                            self.current_epoch,self.args.epochs, losses_string,
+                                                            self.current_epoch + 1,self.args.epochs, losses_string,
                                                             acc_string, total_samples_cur_batch
                                                            )
                  )

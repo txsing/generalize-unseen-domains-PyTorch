@@ -1,7 +1,7 @@
 from torch import optim
 import math
 
-def get_optim_and_scheduler(network, epochs, lr, train_all=True, nesterov=False, adam=False):
+def get_optim_and_scheduler(network, epochs, lr, train_all=True, nesterov=False, adam=False, decay_ratio=1.0):
     if train_all:
         params = network.parameters()
     else:
@@ -11,7 +11,7 @@ def get_optim_and_scheduler(network, epochs, lr, train_all=True, nesterov=False,
         optimizer = optim.Adam(params, lr=lr, betas=(0.9, 0.999), weight_decay = 0.0005)
     else:
         optimizer = optim.SGD(params, weight_decay=.0005, momentum=.9, nesterov=nesterov, lr=lr)
-    step_size = math.ceil(epochs * .8)
+    step_size = math.ceil(epochs * decay_ratio)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size)
     print("Step size: %d" % step_size)
     return optimizer, scheduler

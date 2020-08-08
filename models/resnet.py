@@ -72,8 +72,11 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         layers_output_dict['avg_pool']=x
+
+        features = x
+
         x = x.view(x.size(0), -1)
-        return layers_output_dict, self.class_classifier(x)
+        return features, self.class_classifier(x)
 
 
 def resnet18(pretrained=True, **kwargs):
