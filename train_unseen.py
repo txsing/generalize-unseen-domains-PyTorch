@@ -55,7 +55,9 @@ def get_args():
 class Trainer:
     def __init__(self, args, device):
         self.args = args
-        print('config: mnist %g flip to %s!' % (args.flip_p, args.target) )
+        print('K:%d, T_min:%d, T_max:%d, gamma:%g, adv_lr:%g' 
+              % (args.K, args.T_min, args.T_max, args.gamma, args.adv_learning_rate)
+             )
         self.device = device
 
         model = model_factory.get_network(args.network)(classes=args.n_classes)
@@ -209,7 +211,7 @@ class Trainer:
         idx_val_best = val_res.argmax()
         idx_test_best = test_res.argmax()
 
-        print("BestTestAcc: %g @epoch %d; BestValAcc: %g @epoch %d with TestAcc: %g" 
+        print("BestTestAcc: %g @e%d; BestValAcc: %g @e%d with TestAcc: %g" 
               % (test_res.max(), idx_test_best+1, val_res.max(), idx_val_best+1, test_res[idx_val_best])
              )
         return self.model

@@ -4,3 +4,4 @@
 models/pretrained/*
 */.ipynb_checkpoints/*
 /data/datasets/*
+*.txt
